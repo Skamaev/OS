@@ -1,0 +1,198 @@
+#!/bin/sh
+FIELD_SIZE=3
+CELLS_COUNT=$(($FIELD_SIZE*$FIELD_SIZE))
+
+FIFO_FILENAME="FIFO"
+
+POST_INVITE_MESSAGE="Host game"
+POST_AGREE_MESSAGE="Join game"
+
+WIN_MESSAGE="You win."
+LOOSE_MESSAGE="You loose."
+DRAW_MESSAGE="Draw game."
+
+WAITING_ANOTHER_PLAYER_CONNECTING_MESSAGE="Waiting another player.."
+
+YOUR_TURN_MESSAGE="Your turn. Enter Number of cell for move. You playing for "
+WAITING_ANOTHER_PLAYER_TURN_MESSAGE="Waiting for another player turn.."
+
+HOST_PLAYER_SYMBOL="x"
+JOINED_PLAYER_SYMBOL="0"
+
+
+setMessageInFIFO() {
+	echo "$1" > $FIFO_FILENAME
+}
+
+readMessageFromFIFO(){
+	read line < $FIFO_FILENAME;
+}
+
+tryToConnect() {
+	if [ ! -e "$FIFO_FILENAME" ]; then	
+		makeMeHost;
+		echo $WAITING_ANOTHER_PLAYER_CONNECTING_MESSAGE
+	fi
+		
+
+	if [ "$IAmHost" -eq 0 ]; then
+		setMessageInFIFO "$POST_INVITE_MESSAGE"
+		readMessageFromFIFO;
+	else
+		waitAnotherPlayerConnection;
+	fi
+}
+
+launchGame(){
+	drawGameField;
+	if [ "$IAmHost" -eq 1 ]; then
+		makeMove;
+		incrementMoveNumber
+		clear;
+		drawGameField;
+	else
+		echo $WAITING_ANOTHER_PLAYER_TURN_MESSAGE
+	fi
+	while true; do
+		processGame;
+	done
+}
+
+processGame(){
+	waitEnemyMove;
+	clear;
+	drawGameField;
+	checkIfILoose;
+	checkIfDraw;
+	makeMove;
+	clear;
+	drawGameField;
+}
+
+drawGameField() {	
+	for ((i=0; i<"$CELLS_COUNT"; ++i)); do
+	 	echo -n "${gameField[i]}"
+	 	let columnNumber=i%$FIELD_SIZE
+	 	if [ $columnNumber -eq 2 ]; then
+			let rowNumber=2*$FIELD_SIZE
+	 		if [ $i -lt $rowNumber ]; then
+	 			echo -e "\n"	 		
+	 		fi
+	 	else
+	 		echo -n \|
+	 	fi
+	done
+echo -e "\n"
+}
+
+makeMeHost() {
+	l=$(mknod "$FIFO_FILENAME" p);
+	IAmHost=1;
+	MySymbol=$HOST_PLAYER_SYMBOL;
+	EnemySymbol=$JOINED_PLAYER_SYMBOL;	
+}
+
+
+
+waitAnotherPlayerConnection () {
+	while true; do
+		if readMessageFromFIFO; then
+			if [ "$line" = "$POST_INVITE_MESSAGE" ]; then
+				setMessageInFIFO "$POST_AGREE_MESSAGE"
+				break
+			fi
+		fi
+	done 
+}
+
+
+checkIfDraw() {
+	incrementMoveNumber
+	if [ $MoveNumber -eq $CELLS_COUNT ]; then
+		echo $DRAW_MESSAGE
+		setMessageInFIFO "$DRAW_MESSAGE"
+		exit;
+	fi
+}
+
+checkIfILoose() {
+	if 
+	 [[ "${gameField[0]}" == "$EnemySymbol" && "${gameField[1]}" == "$EnemySymbol" && "${gameField[2]}" == "$EnemySymbol" ]] ||
+	 [[ "${gameField[3]}" == "$EnemySymbol" && "${gameField[4]}" == "$EnemySymbol" && "${gameField[5]}" == "$EnemySymbol" ]]	||
+	 [[ "${gameField[6]}" == "$EnemySymbol" && "${gameField[7]}" == "$EnemySymbol" && "${gameField[8]}" == "$EnemySymbol" ]] ||
+	 [[ "${gameField[0]}" == "$EnemySymbol" && "${gameField[3]}" == "$EnemySymbol" && "${gameField[6]}" == "$EnemySymbol" ]] ||
+	 [[ "${gameField[1]}" == "$EnemySymbol" && "${gameField[4]}" == "$EnemySymbol" && "${gameField[7]}" == "$EnemySymbol" ]] ||
+	 [[ "${gameField[2]}" == "$EnemySymbol" && "${gameField[5]}" == "$EnemySymbol" && "${gameField[8]}" == "$EnemySymbol" ]] ||
+	 [[ "${gameField[0]}" == "$EnemySymbol" && "${gameField[4]}" == "$EnemySymbol" && "${gameField[8]}" == "$EnemySymbol" ]] ||
+	 [[ "${gameField[2]}" == "$EnemySymbol" && "${gameField[4]}" == "$EnemySymbol" && "${gameField[6]}" == "$EnemySymbol" ]];
+ 	then
+		echo "$LOOSE_MESSAGE"
+		setMessageInFIFO "$WIN_MESSAGE"
+		exit; 
+	fi
+}	
+
+checkIfIWin() {
+	if [ "$1" == "$WIN_MESSAGE" ]; then
+		echo $WIN_MESSAGE		
+		exit;
+	fi
+}
+
+cellIsEmpty() {
+	if [[ "${gameField[$1]}" == 'X' ||  "${gameField[$1]}" == '0' ]]; then
+		return 1
+	else
+		return 0
+	fi
+}
+
+makeMove() {
+	echo $YOUR_TURN_MESSAGE $MySymbol"."
+	while true; do
+		read line
+		let "line--"
+		if cellIsEmpty "$line"; then
+			break
+		fi
+	done
+	gameField["$line"]="$MySymbol"
+	setMessageInFIFO "$line"
+}
+
+waitEnemyMove() {
+	while true; do
+		if readMessageFromFIFO; then
+			if [ "$1" == "$DRAW_MESSAGE" ]; then
+				echo $DRAW_MESSAGE
+			
+				exit;
+			fi
+			checkIfIWin "$line"
+			gameField["$line"]="$EnemySymbol"
+			break;
+		fi
+	done 
+}
+
+incrementMoveNumber(){
+	let "MoveNumber++"
+}
+
+deleteFIFOFile() {
+	rm -f "$FIFO_FILENAME"
+}
+
+######################BODY###########################
+trap deleteFIFOFile EXIT
+clear;
+
+gameField=(' ' ' ' ' ' ' ' ' ' ' ' ' ' ' ' ' ')
+MySymbol='0'
+EnemySymbol='X'
+MoveNumber=0;
+IAmHost=0;
+
+tryToConnect;
+launchGame;
+done
