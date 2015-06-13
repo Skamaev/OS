@@ -1,6 +1,9 @@
 *.o
 *.pro
 *.pro.user
+.gitignore~
 Makefile
 seekSparseFile
 childWatcher
+create
+fileLocking
